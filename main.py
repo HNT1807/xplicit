@@ -77,27 +77,27 @@ def process_excel(df, search_words):
     return modified_df, report
 
 
-def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name='Version'):
+def highlight_explicit_cells(writer, sheet_name):
     workbook = writer.book
     worksheet = workbook[sheet_name]
 
-    # Find the column index for 'Version' (case-insensitive)
+    # Find the column index for 'Version_Grouping'
     version_col = None
-    for idx, cell in enumerate(worksheet[1], start=1):
-        if cell.value and cell.value.lower() == version_col_name.lower():
+    for idx, cell in enumerate(worksheet[1]):
+        if cell.value and cell.value.lower() == 'version':
             version_col = idx
             break
 
     if version_col:
         # Define the highlighting style
         yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+        dxf = DifferentialStyle(fill=yellow_fill)
+        rule = Rule(type="containsText", operator="containsText", text="Explicit", dxf=dxf)
+        rule.formula = [f'NOT(ISERROR(SEARCH("Explicit",{chr(64 + version_col)}2)))']
 
-        # Apply the highlighting to the modified cells
-        for row in modified_rows:
-            cell = worksheet.cell(row=row, column=version_col)
-            cell.fill = yellow_fill
-    else:
-        print(f"Warning: '{version_col_name}' column not found. Highlighting not applied.")
+        # Apply the conditional formatting to the 'Version_Grouping' column
+        worksheet.conditional_formatting.add(
+            f'{chr(64 + version_col)}2:{chr(64 + version_col)}{worksheet.max_row}', rule)
 def on_file_upload():
     st.session_state.file_uploaded = True
 
