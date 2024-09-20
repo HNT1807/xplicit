@@ -84,8 +84,8 @@ def highlight_explicit_cells(writer, sheet_name):
     # Find the column index for 'Version_Grouping'
     version_col = None
     for idx, cell in enumerate(worksheet[1]):
-        if cell.value == 'Version':
-            version_col = idx + 1
+        if cell.value and cell.value.lower() == 'version':
+            version_col = idx
             break
 
     if version_col:
