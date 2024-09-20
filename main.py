@@ -29,7 +29,12 @@ def create_report(all_reports):
             ws.append([file_name, row, original_version, new_version, explicit_words])
 
     return wb
-
+def reset_app():
+    # Clear all session state variables
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    # Set a flag to reinitialize the file uploader
+    st.session_state.reset_uploader = True
 def process_version(version, has_explicit_content):
     if has_explicit_content and "Explicit" not in version:
         parts = version.split(', ')
@@ -43,19 +48,32 @@ def process_version(version, has_explicit_content):
 
 def process_excel(df, search_words):
     report = []
-    if 'Lyrics' not in df.columns or 'Version' not in df.columns:
-        return df, ["Error: Required columns 'Lyrics' and 'Version' not found in the Excel file."]
+
+
+    # Convert column names to lowercase for case-insensitive comparison
+    df.columns = df.columns.str.lower()
+
+
+
+    if 'lyrics' not in df.columns or 'version' not in df.columns:
+        missing_columns = []
+        if 'lyrics' not in df.columns:
+            missing_columns.append('Lyrics')
+        if 'version' not in df.columns:
+            missing_columns.append('Version')
+        return df, [
+            f"Error: Required column(s) {', '.join(missing_columns)} not found in the Excel file. Available columns are: {', '.join(df.columns)}"]
 
     modified_df = df.copy()
     for index, row in df.iterrows():
-        lyrics = str(row['Lyrics']).lower()
-        version = str(row['Version'])
+        lyrics = str(row['lyrics']).lower()
+        version = str(row['version'])
         has_explicit_content = any(word.lower() in lyrics for word in search_words)
         new_version = process_version(version, has_explicit_content)
         if new_version != version:
             report.append(
                 f"Row {index + 2}: '{version}' became '{new_version}' >>> {[word for word in search_words if word.lower() in lyrics]}")
-        modified_df.at[index, 'Version'] = new_version
+        modified_df.at[index, 'version'] = new_version
     return modified_df, report
 
 
@@ -80,7 +98,8 @@ def highlight_explicit_cells(writer, sheet_name):
         # Apply the conditional formatting to the 'Version_Grouping' column
         worksheet.conditional_formatting.add(
             f'{chr(64 + version_col)}2:{chr(64 + version_col)}{worksheet.max_row}', rule)
-
+def on_file_upload():
+    st.session_state.file_uploaded = True
 
 def main():
     st.markdown(
@@ -88,7 +107,32 @@ def main():
         unsafe_allow_html=True
     )
 
-    uploaded_files = st.file_uploader("Choose Excel files", type=["xlsx", "xls"], accept_multiple_files=True)
+    # Initialize session state variables
+    if 'reset_uploader' not in st.session_state:
+        st.session_state.reset_uploader = False
+    if 'file_uploader_key' not in st.session_state:
+        st.session_state.file_uploader_key = "file_uploader_0"
+    if 'file_uploaded' not in st.session_state:
+        st.session_state.file_uploaded = False
+    if 'uploaded_files' not in st.session_state:
+        st.session_state.uploaded_files = None
+
+    # Check if we need to reset the file uploader
+    if st.session_state.reset_uploader:
+        st.session_state.file_uploader_key = f"file_uploader_{pd.Timestamp.now().timestamp()}"
+        st.session_state.reset_uploader = False
+        st.session_state.uploaded_files = None
+
+    # File uploader
+    uploaded_files = st.file_uploader("Choose Excel files", type=["xlsx", "xls"],
+                                      accept_multiple_files=True,
+                                      on_change=on_file_upload,
+                                      key=st.session_state.file_uploader_key)
+
+    # Update session state when files are uploaded
+    if uploaded_files and st.session_state.file_uploaded:
+        st.session_state.uploaded_files = uploaded_files
+        st.session_state.file_uploaded = False
 
     if 'custom_words' not in st.session_state:
         st.session_state.custom_words = []
@@ -108,12 +152,12 @@ def main():
     if 'processing_report' not in st.session_state:
         st.session_state.processing_report = None
 
-    if uploaded_files and st.button("CHECK FOR EXPLICIT WORDS!"):
+    if st.session_state.uploaded_files and st.button("CHECK FOR EXPLICIT WORDS!"):
         all_reports = {}
         processed_files = []
         processing_report = []
 
-        for uploaded_file in uploaded_files:
+        for uploaded_file in st.session_state.uploaded_files:
             try:
                 df = pd.read_excel(uploaded_file)
                 modified_df, report = process_excel(df, search_words)
@@ -144,7 +188,6 @@ def main():
 
     # Display processing report if available
     if st.session_state.processing_report:
-
         for item in st.session_state.processing_report:
             st.write(item)
 
@@ -183,6 +226,8 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
+    # Add RESET button after all other buttons
+    st.button("RESET", on_click=reset_app)
 
 if __name__ == "__main__":
     main()
