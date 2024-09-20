@@ -101,21 +101,30 @@ def main():
 
     st.session_state.custom_words = list(set(st.session_state.custom_words + search_words))
 
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = None
+    if 'all_reports' not in st.session_state:
+        st.session_state.all_reports = None
+    if 'processing_report' not in st.session_state:
+        st.session_state.processing_report = None
+
     if uploaded_files and st.button("CHECK FOR EXPLICIT WORDS!"):
         all_reports = {}
         processed_files = []
+        processing_report = []
 
         for uploaded_file in uploaded_files:
             try:
                 df = pd.read_excel(uploaded_file)
                 modified_df, report = process_excel(df, search_words)
-                st.write(f"Processing Report for {uploaded_file.name}:")
+                file_report = [f"Processing Report for {uploaded_file.name}:"]
                 if not report:
-                    st.write("No changes were made to the file.")
+                    file_report.append("No changes were made to the file.")
                 else:
-                    for item in report:
-                        st.write(item)
+                    file_report.extend(report)
                     all_reports[uploaded_file.name] = report
+
+                processing_report.extend(file_report)
 
                 if not any(item.startswith("Error") for item in report):
                     buffer = io.BytesIO()
@@ -124,44 +133,55 @@ def main():
                         highlight_explicit_cells(writer, 'Sheet1')
                     processed_files.append((uploaded_file.name, buffer.getvalue()))
             except Exception as e:
-                st.error(f"An error occurred processing {uploaded_file.name}: {str(e)}")
-                # Store results in session state so that download buttons persist
-                st.session_state.processed_files = processed_files
-                st.session_state.all_reports = all_reports
+                error_message = f"An error occurred processing {uploaded_file.name}: {str(e)}"
+                processing_report.append(error_message)
+                st.error(error_message)
 
-        if processed_files:
-            if len(processed_files) == 1:
-                st.download_button(
-                    label=f"DOWNLOAD UPDATED {processed_files[0][0]}",
-                    data=processed_files[0][1],
-                    file_name=f"modified_{processed_files[0][0]}",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                    for file_name, file_content in processed_files:
-                        zip_file.writestr(f"modified_{file_name}", file_content)
+        # Store results in session state
+        st.session_state.processed_files = processed_files
+        st.session_state.all_reports = all_reports
+        st.session_state.processing_report = processing_report
 
-                st.download_button(
-                    label="DOWNLOAD UPDATED XLS",
-                    data=zip_buffer.getvalue(),
-                    file_name="modified_excel_files.zip",
-                    mime="application/zip"
-                )
+    # Display processing report if available
+    if st.session_state.processing_report:
 
-        if all_reports:
-            report_wb = create_report(all_reports)
-            report_buffer = io.BytesIO()
-            report_wb.save(report_buffer)
-            report_buffer.seek(0)
+        for item in st.session_state.processing_report:
+            st.write(item)
 
+    # Display download buttons if data is available in session state
+    if st.session_state.processed_files:
+        if len(st.session_state.processed_files) == 1:
             st.download_button(
-                label="DOWNLOAD REPORT",
-                data=report_buffer,
-                file_name="Explicit Report.xlsx",
+                label=f"DOWNLOAD UPDATED {st.session_state.processed_files[0][0]}",
+                data=st.session_state.processed_files[0][1],
+                file_name=f"modified_{st.session_state.processed_files[0][0]}",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+        else:
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                for file_name, file_content in st.session_state.processed_files:
+                    zip_file.writestr(f"modified_{file_name}", file_content)
+
+            st.download_button(
+                label="DOWNLOAD UPDATED XLS",
+                data=zip_buffer.getvalue(),
+                file_name="modified_excel_files.zip",
+                mime="application/zip"
+            )
+
+    if st.session_state.all_reports:
+        report_wb = create_report(st.session_state.all_reports)
+        report_buffer = io.BytesIO()
+        report_wb.save(report_buffer)
+        report_buffer.seek(0)
+
+        st.download_button(
+            label="DOWNLOAD REPORT",
+            data=report_buffer,
+            file_name="Explicit Report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 
 if __name__ == "__main__":
