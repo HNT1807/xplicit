@@ -8,25 +8,75 @@ from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.formatting.rule import Rule
 from openpyxl import load_workbook, Workbook
 
+import streamlit as st
+import pandas as pd
+import io
+import zipfile
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
+from openpyxl.styles.differential import DifferentialStyle
+from openpyxl.formatting.rule import Rule
+from openpyxl import load_workbook, Workbook
+
+
+def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name='Version'):
+    workbook = writer.book
+    worksheet = workbook[sheet_name]
+
+    # Find the column index for 'Version' (case-insensitive)
+    version_col = None
+    for idx, cell in enumerate(worksheet[1], start=1):
+        if cell.value and cell.value.lower() == version_col_name.lower():
+            version_col = idx
+            break
+
+    if version_col:
+        # Define the highlighting style
+        yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+
+        # Apply the highlighting to the modified cells
+        for row in modified_rows:
+            cell = worksheet.cell(row=row, column=version_col)
+            cell.fill = yellow_fill
+    else:
+        print(f"Warning: '{version_col_name}' column not found. Highlighting not applied.")
+
 
 def create_report(all_reports):
     wb = Workbook()
     ws = wb.active
     ws.title = "Processing Report"
 
-    headers = ["File Name", "Row", "Original Version", "New Version", "Explicit Words Found"]
+    headers = ["File Name", "Row", "Volume", "Library", "Original Version", "New Version", "Explicit Words Found"]
     ws.append(headers)
 
     for file_name, report in all_reports.items():
         for item in report:
-            parts = item.split(": ")
-            row = parts[0].split(" ")[1]
-            versions = parts[1].split(" became ")
-            original_version = versions[0].strip("'")
-            new_version = versions[1].split(" >>>")[0].strip("'")
-            explicit_words = versions[1].split(" >>> ")[1]
+            try:
+                parts = item.split(": ", 1)
+                row = parts[0].split(" ")[1]
 
-            ws.append([file_name, row, original_version, new_version, explicit_words])
+                # Extract Volume and Library
+                volume = "N/A"
+                library = "N/A"
+                if "Volume:" in item:
+                    volume = item.split("Volume: ")[1].split(", Library:")[0]
+                if "Library:" in item:
+                    library = item.split("Library: ")[1].split(", Original Version:")[0]
+
+                # Extract versions and explicit words
+                versions_part = item.split("Original Version: ")[1]
+                original_version, rest = versions_part.split("' became '")
+                new_version, explicit_words = rest.split(" >>> ")
+                original_version = original_version.strip("'")
+                new_version = new_version.strip("'")
+
+                ws.append([file_name, row, volume, library, original_version, new_version, explicit_words])
+            except Exception as e:
+                print(f"Error processing report item: {item}")
+                print(f"Error details: {str(e)}")
+                # Append a row with available information
+                ws.append([file_name, "Error", "Error", "Error", "Error", "Error", str(e)])
 
     return wb
 def reset_app():
@@ -45,36 +95,56 @@ def process_version(version, has_explicit_content):
         return ", ".join(parts)
     return version  # Return original version if no changes are needed
 
+def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name='Version'):
+    workbook = writer.book
+    worksheet = workbook[sheet_name]
 
+    # Find the column index for 'Version' (case-insensitive)
+    version_col = None
+    for idx, cell in enumerate(worksheet[1], start=1):
+        if cell.value and cell.value.lower() == version_col_name.lower():
+            version_col = idx
+            break
+
+    if version_col:
+        # Define the highlighting style
+        yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+
+        # Apply the highlighting to the modified cells
+        for row in modified_rows:
+            cell = worksheet.cell(row=row, column=version_col)
+            cell.fill = yellow_fill
+    else:
+        print(f"Warning: '{version_col_name}' column not found. Highlighting not applied.")
 def process_excel(df, search_words):
     report = []
-
+    modified_rows = []
 
     # Convert column names to lowercase for case-insensitive comparison
     df.columns = df.columns.str.lower()
 
-
-
-    if 'lyrics' not in df.columns or 'version' not in df.columns:
-        missing_columns = []
-        if 'lyrics' not in df.columns:
-            missing_columns.append('Lyrics')
-        if 'version' not in df.columns:
-            missing_columns.append('Version')
-        return df, [
+    required_columns = ['lyrics', 'version', 'volume', 'library']
+    if not all(col in df.columns for col in required_columns):
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        return df, [], [
             f"Error: Required column(s) {', '.join(missing_columns)} not found in the Excel file. Available columns are: {', '.join(df.columns)}"]
 
     modified_df = df.copy()
     for index, row in df.iterrows():
         lyrics = str(row['lyrics']).lower()
         version = str(row['version'])
+        volume = str(row['volume'])
+        library = str(row['library'])
+
         has_explicit_content = any(word.lower() in lyrics for word in search_words)
         new_version = process_version(version, has_explicit_content)
         if new_version != version:
             report.append(
-                f"Row {index + 2}: '{version}' became '{new_version}' >>> {[word for word in search_words if word.lower() in lyrics]}")
-        modified_df.at[index, 'version'] = new_version
-    return modified_df, report
+                f"Row {index + 2}: Volume: {volume}, Library: {library}, Original Version: '{version}' became '{new_version}' >>> {[word for word in search_words if word.lower() in lyrics]}")
+            modified_df.at[index, 'version'] = new_version
+            modified_rows.append(index + 2)
+
+    return modified_df, modified_rows, report
 
 
 def highlight_explicit_cells(writer, sheet_name):
@@ -139,8 +209,8 @@ def main():
 
     search_words = st.multiselect(
         "Enter words to search for in lyrics:",
-        options=["shit", "bullshit", "shithead", "piss", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "gypsy", "faggot", "goddamn"] + list(set(st.session_state.custom_words)),
-        default=["shit", "bullshit", "shithead", "piss", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "gypsy", "faggot", "goddamn"]
+        options=["shit", "piss", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "faggot", "goddamn"] + list(set(st.session_state.custom_words)),
+        default=["shit", "piss", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "faggot", "goddamn"]
     )
 
     st.session_state.custom_words = list(set(st.session_state.custom_words + search_words))
@@ -160,7 +230,7 @@ def main():
         for uploaded_file in st.session_state.uploaded_files:
             try:
                 df = pd.read_excel(uploaded_file)
-                modified_df, report = process_excel(df, search_words)
+                modified_df, modified_rows, report = process_excel(df, search_words)
                 file_report = [f"Processing Report for {uploaded_file.name}:"]
                 if not report:
                     file_report.append("No changes were made to the file.")
@@ -174,7 +244,7 @@ def main():
                     buffer = io.BytesIO()
                     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                         modified_df.to_excel(writer, index=False, sheet_name='Sheet1')
-                        highlight_explicit_cells(writer, 'Sheet1')
+                        highlight_modified_cells(writer, 'Sheet1', modified_rows)
                     processed_files.append((uploaded_file.name, buffer.getvalue()))
             except Exception as e:
                 error_message = f"An error occurred processing {uploaded_file.name}: {str(e)}"
