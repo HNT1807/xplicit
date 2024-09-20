@@ -18,7 +18,8 @@ from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.formatting.rule import Rule
 from openpyxl import load_workbook, Workbook
 
-
+def update_search_words():
+    st.session_state.custom_words = st.session_state.search_words
 def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name='Version'):
     workbook = writer.book
     worksheet = workbook[sheet_name]
@@ -177,60 +178,59 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Initialize session state variables
-    if 'reset_uploader' not in st.session_state:
-        st.session_state.reset_uploader = False
-    if 'file_uploader_key' not in st.session_state:
-        st.session_state.file_uploader_key = "file_uploader_0"
-    if 'file_uploaded' not in st.session_state:
-        st.session_state.file_uploaded = False
-    if 'uploaded_files' not in st.session_state:
-        st.session_state.uploaded_files = None
-
-    # Check if we need to reset the file uploader
-    if st.session_state.reset_uploader:
-        st.session_state.file_uploader_key = f"file_uploader_{pd.Timestamp.now().timestamp()}"
-        st.session_state.reset_uploader = False
-        st.session_state.uploaded_files = None
-
     # File uploader
     uploaded_files = st.file_uploader("Choose Excel files", type=["xlsx", "xls"],
                                       accept_multiple_files=True,
-                                      on_change=on_file_upload,
-                                      key=st.session_state.file_uploader_key)
+                                      key="file_uploader")
 
-    # Update session state when files are uploaded
-    if uploaded_files and st.session_state.file_uploaded:
-        st.session_state.uploaded_files = uploaded_files
-        st.session_state.file_uploaded = False
+    # Define default search words
+    default_search_words = ["shit", "bullshit", "shithead", "piss", "fuck", "cunt", "cocksucker", "motherfucker",
+                            "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "gypsy", "faggot",
+                            "goddamn"]
 
+    # Initialize session state variables
     if 'custom_words' not in st.session_state:
-        st.session_state.custom_words = []
+        st.session_state.custom_words = default_search_words.copy()
+    if 'search_words' not in st.session_state:
+        st.session_state.search_words = st.session_state.custom_words.copy()
 
-    search_words = st.multiselect(
-        "Enter words to search for in lyrics:",
-        options=["shit", "piss", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "faggot", "goddamn"] + list(set(st.session_state.custom_words)),
-        default=["shit", "piss", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "pussy", "asshole", "wog", "wop", "nigger", "kike", "gook", "faggot", "goddamn"]
+    # Display and handle search words
+    selected_words = st.multiselect(
+        "Default list:",
+        options=st.session_state.custom_words,
+        default=st.session_state.search_words
     )
 
-    st.session_state.custom_words = list(set(st.session_state.custom_words + search_words))
+    # Update session state based on selection
+    st.session_state.search_words = selected_words
 
-    if 'processed_files' not in st.session_state:
-        st.session_state.processed_files = None
-    if 'all_reports' not in st.session_state:
-        st.session_state.all_reports = None
-    if 'processing_report' not in st.session_state:
-        st.session_state.processing_report = None
+    # Add field for new words
+    new_words = st.text_input("Enter new words (comma separated):")
 
-    if st.session_state.uploaded_files and st.button("CHECK FOR EXPLICIT WORDS!"):
+    # Button to add new words
+    if st.button("Add New Words"):
+        if new_words:
+            new_word_list = [word.strip() for word in new_words.split(',') if word.strip()]
+            st.session_state.custom_words.extend(new_word_list)
+            st.session_state.custom_words = list(set(st.session_state.custom_words))
+            st.session_state.search_words.extend(new_word_list)
+            st.success(f"Added {len(new_word_list)} new word(s) to the list.")
+
+
+    # Button to reset search words to default
+    if st.button("Reset to Default Words"):
+        st.session_state.custom_words = default_search_words.copy()
+        st.session_state.search_words = default_search_words.copy()
+
+    if uploaded_files and st.button("CHECK FOR EXPLICIT WORDS!"):
         all_reports = {}
         processed_files = []
         processing_report = []
 
-        for uploaded_file in st.session_state.uploaded_files:
+        for uploaded_file in uploaded_files:
             try:
                 df = pd.read_excel(uploaded_file)
-                modified_df, modified_rows, report = process_excel(df, search_words)
+                modified_df, modified_rows, report = process_excel(df, st.session_state.search_words)
                 file_report = [f"Processing Report for {uploaded_file.name}:"]
                 if not report:
                     file_report.append("No changes were made to the file.")
@@ -256,13 +256,13 @@ def main():
         st.session_state.all_reports = all_reports
         st.session_state.processing_report = processing_report
 
-    # Display processing report if available
-    if st.session_state.processing_report:
+        # Display processing report if available
+    if 'processing_report' in st.session_state and st.session_state.processing_report:
         for item in st.session_state.processing_report:
             st.write(item)
 
-    # Display download buttons if data is available in session state
-    if st.session_state.processed_files:
+        # Display download buttons if data is available in session state
+    if 'processed_files' in st.session_state and st.session_state.processed_files:
         if len(st.session_state.processed_files) == 1:
             st.download_button(
                 label=f"DOWNLOAD UPDATED {st.session_state.processed_files[0][0]}",
@@ -283,7 +283,7 @@ def main():
                 mime="application/zip"
             )
 
-    if st.session_state.all_reports:
+    if 'all_reports' in st.session_state and st.session_state.all_reports:
         report_wb = create_report(st.session_state.all_reports)
         report_buffer = io.BytesIO()
         report_wb.save(report_buffer)
@@ -296,8 +296,11 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    # Add RESET button after all other buttons
-    st.button("RESET", on_click=reset_app)
+        # Add RESET button after all other buttons
+    if st.button("RESET"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
