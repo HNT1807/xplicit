@@ -130,6 +130,9 @@ def process_excel(df, search_words):
         return df, [], [
             f"Error: Required column(s) {', '.join(missing_columns)} not found in the Excel file. Available columns are: {', '.join(df.columns)}"]
 
+    # Define word boundaries (including space, punctuation, and |)
+    word_boundaries = r'[\s.,;:!?()\[\]{}|]'
+
     modified_df = df.copy()
     for index, row in df.iterrows():
         lyrics = str(row['lyrics']).lower()
@@ -137,11 +140,26 @@ def process_excel(df, search_words):
         volume = str(row['volume'])
         library = str(row['library'])
 
-        has_explicit_content = any(word.lower() in lyrics for word in search_words)
+        # Add spaces at the beginning and end of lyrics for boundary checking
+        lyrics = f" {lyrics} "
+        
+        # Find explicit words with proper word boundaries
+        found_explicit_words = []
+        for word in search_words:
+            word = word.lower()
+            # Create a regular expression pattern with word boundaries
+            import re
+            pattern = f"{word_boundaries}{re.escape(word)}{word_boundaries}"
+            
+            if re.search(pattern, lyrics):
+                found_explicit_words.append(word)
+
+        has_explicit_content = bool(found_explicit_words)
         new_version = process_version(version, has_explicit_content)
+        
         if new_version != version:
             report.append(
-                f"Row {index + 2}: Volume: {volume}, Library: {library}, Original Version: '{version}' became '{new_version}' >>> {[word for word in search_words if word.lower() in lyrics]}")
+                f"Row {index + 2}: Volume: {volume}, Library: {library}, Original Version: '{version}' became '{new_version}' >>> {found_explicit_words}")
             modified_df.at[index, 'version'] = new_version
             modified_rows.append(index + 2)
 
