@@ -8,18 +8,9 @@ from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.formatting.rule import Rule
 from openpyxl import load_workbook, Workbook
 
-import streamlit as st
-import pandas as pd
-import io
-import zipfile
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
-from openpyxl.styles.differential import DifferentialStyle
-from openpyxl.formatting.rule import Rule
-from openpyxl import load_workbook, Workbook
-
 def update_search_words():
     st.session_state.custom_words = st.session_state.search_words
+    
 def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name='Version'):
     workbook = writer.book
     worksheet = workbook[sheet_name]
@@ -41,7 +32,6 @@ def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name
             cell.fill = yellow_fill
     else:
         print(f"Warning: '{version_col_name}' column not found. Highlighting not applied.")
-
 
 def create_report(all_reports):
     wb = Workbook()
@@ -80,12 +70,14 @@ def create_report(all_reports):
                 ws.append([file_name, "Error", "Error", "Error", "Error", "Error", str(e)])
 
     return wb
+    
 def reset_app():
     # Clear all session state variables
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     # Set a flag to reinitialize the file uploader
     st.session_state.reset_uploader = True
+    
 def process_version(version, has_explicit_content):
     if has_explicit_content and "Explicit" not in version:
         parts = version.split(', ')
@@ -117,6 +109,7 @@ def highlight_modified_cells(writer, sheet_name, modified_rows, version_col_name
             cell.fill = yellow_fill
     else:
         print(f"Warning: '{version_col_name}' column not found. Highlighting not applied.")
+        
 def process_excel(df, search_words):
     report = []
     modified_rows = []
@@ -165,7 +158,6 @@ def process_excel(df, search_words):
 
     return modified_df, modified_rows, report
 
-
 def highlight_explicit_cells(writer, sheet_name):
     workbook = writer.book
     worksheet = workbook[sheet_name]
@@ -187,6 +179,7 @@ def highlight_explicit_cells(writer, sheet_name):
         # Apply the conditional formatting to the 'Version_Grouping' column
         worksheet.conditional_formatting.add(
             f'{chr(64 + version_col)}2:{chr(64 + version_col)}{worksheet.max_row}', rule)
+        
 def on_file_upload():
     st.session_state.file_uploaded = True
 
